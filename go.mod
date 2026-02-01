@@ -1,6 +1,6 @@
 module zencoder2api
 
-go 1.21
+go 1.23
 
 require (
 	github.com/anthropics/anthropic-sdk-go v0.2.0-alpha.13

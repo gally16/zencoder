@@ -54,19 +54,19 @@ logs:
 
 # 通过 Docker 运行 go mod tidy
 tidy:
-	docker run --rm -v "$(CURDIR):/app" -w /app golang:1.21-alpine go mod tidy
+	docker run --rm -v "$(CURDIR):/app" -w /app golang:1.23-alpine go mod tidy
 
 # 通过 Docker 运行测试
 test:
-	docker run --rm -v "$(CURDIR):/app" -w /app golang:1.21-alpine go test ./...
+	docker run --rm -v "$(CURDIR):/app" -w /app golang:1.23-alpine go test ./...
 
 # 格式化代码
 fmt:
-	docker run --rm -v "$(CURDIR):/app" -w /app golang:1.21-alpine go fmt ./...
+	docker run --rm -v "$(CURDIR):/app" -w /app golang:1.23-alpine go fmt ./...
 
 # 进入构建容器 shell
 shell:
-	docker run --rm -it -v "$(CURDIR):/app" -w /app golang:1.21-alpine sh
+	docker run --rm -it -v "$(CURDIR):/app" -w /app golang:1.23-alpine sh
 
 # 清理
 clean:
