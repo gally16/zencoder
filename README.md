@@ -64,35 +64,39 @@ docker run -d \
 
 ### Docker Compose
 
-```yaml
-version: '3.8'
-services:
-  zencoder2api:
-    build: .
-    ports:
-      - "7860:7860"
-    volumes:
-      - ./data:/app/data
-    environment:
-      - AUTH_TOKEN=your_token
-      - ADMIN_PASSWORD=your_password
-    restart: unless-stopped
-```
-
-### 从源码运行
-
 ```bash
-# 安装依赖
-go mod download
-
 # 复制配置文件
 cp .env.example .env
 
 # 编辑配置
 vim .env
 
-# 运行
-go run .
+# 启动服务
+docker-compose up -d
+```
+
+### 使用 PostgreSQL
+
+```bash
+# 使用预配置的 PostgreSQL compose 文件
+docker-compose -f docker-compose.postgres.yml up -d
+```
+
+### 开发命令 (Makefile)
+
+本项目提供 Makefile 封装常用命令，**无需本地安装 Go**：
+
+```bash
+make help      # 查看所有命令
+make build     # 构建 Docker 镜像
+make run       # 启动服务
+make dev       # 开发模式 (前台运行，显示日志)
+make stop      # 停止服务
+make logs      # 查看日志
+make tidy      # 运行 go mod tidy (通过 Docker)
+make test      # 运行测试 (通过 Docker)
+make shell     # 进入 Go 开发容器
+make clean     # 清理容器和镜像
 ```
 
 ## 环境变量

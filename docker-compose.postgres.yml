@@ -1,0 +1,47 @@
+version: '3.8'
+
+# PostgreSQL 部署示例
+# 使用: docker-compose -f docker-compose.postgres.yml up -d
+
+services:
+  zencoder2api:
+    build: .
+    container_name: zencoder2api
+    ports:
+      - "7860:7860"
+    environment:
+      - PORT=7860
+      - DB_TYPE=postgres
+      - DATABASE_URL=postgres://zencoder:zencoder@db:5432/zencoder?sslmode=disable
+      - AUTH_TOKEN=${AUTH_TOKEN:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - GIN_MODE=release
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:7860/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  db:
+    image: postgres:16-alpine
+    container_name: zencoder-postgres
+    environment:
+      POSTGRES_USER: zencoder
+      POSTGRES_PASSWORD: zencoder
+      POSTGRES_DB: zencoder
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zencoder"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:

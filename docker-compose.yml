@@ -10,9 +10,16 @@ services:
       - ./data:/app/data
     environment:
       - PORT=7860
-      - DB_PATH=/app/data/data.db
+      # 数据库配置 (三选一)
+      # SQLite (默认)
+      - DB_TYPE=${DB_TYPE:-sqlite}
+      - DB_PATH=${DB_PATH:-/app/data/data.db}
+      # PostgreSQL/MySQL (设置 DATABASE_URL 时使用)
+      - DATABASE_URL=${DATABASE_URL:-}
+      # 认证
       - AUTH_TOKEN=${AUTH_TOKEN:-}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      # 其他
       - DEBUG=${DEBUG:-false}
       - SOCKS_PROXY_POOL=${SOCKS_PROXY_POOL:-}
       - GIN_MODE=release
