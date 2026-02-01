@@ -11,6 +11,8 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/openai/openai-go v0.1.0-alpha.44
 	google.golang.org/api v0.214.0
+	gorm.io/driver/mysql v1.5.7
+	gorm.io/driver/postgres v1.5.9
 	gorm.io/gorm v1.25.7
 )
 

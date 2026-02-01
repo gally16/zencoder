@@ -100,11 +100,73 @@ go run .
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `PORT` | 服务端口 | 7860 |
-| `DB_PATH` | SQLite 数据库路径 | data.db |
+| `DB_TYPE` | 数据库类型 (`sqlite` / `postgres` / `mysql`) | sqlite |
+| `DB_PATH` | SQLite 数据库文件路径 | data.db |
+| `DATABASE_URL` | PostgreSQL/MySQL 连接字符串 | - |
 | `AUTH_TOKEN` | API 访问密钥 (留空则无需验证) | - |
 | `ADMIN_PASSWORD` | 管理面板密码 | - |
 | `DEBUG` | 调试模式 | false |
 | `SOCKS_PROXY_POOL` | 代理池配置 | - |
+
+## 数据库配置
+
+支持 SQLite、PostgreSQL 和 MySQL 三种数据库，通过环境变量切换。
+
+### SQLite (默认)
+
+无需额外配置，开箱即用。仅设置 `DB_PATH` 即可（默认 `data.db`）：
+
+```bash
+DB_PATH=./data/zencoder.db
+```
+
+### PostgreSQL
+
+```bash
+DB_TYPE=postgres
+DATABASE_URL=postgres://username:password@host:5432/dbname?sslmode=disable
+```
+
+### MySQL
+
+```bash
+DB_TYPE=mysql
+DATABASE_URL=username:password@tcp(host:3306)/dbname?charset=utf8mb4&parseTime=True&loc=Local
+```
+
+### Docker Compose 示例 (PostgreSQL)
+
+```yaml
+version: '3.8'
+services:
+  zencoder2api:
+    build: .
+    ports:
+      - "7860:7860"
+    environment:
+      - AUTH_TOKEN=your_token
+      - ADMIN_PASSWORD=your_password
+      - DB_TYPE=postgres
+      - DATABASE_URL=postgres://zencoder:zencoder@db:5432/zencoder?sslmode=disable
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: zencoder
+      POSTGRES_PASSWORD: zencoder
+      POSTGRES_DB: zencoder
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+```
+
+> **兼容性说明**：如果只设置 `DB_PATH` 且未设置 `DB_TYPE`，将自动使用 SQLite，与旧版配置完全兼容。
 
 ## API 使用
 

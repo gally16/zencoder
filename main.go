@@ -23,12 +23,20 @@ func main() {
 		port = "7860" // 默认使用7860端口，兼容Huggingface Spaces
 	}
 
-	dbPath := os.Getenv("DB_PATH")
-	if dbPath == "" {
-		dbPath = "data.db"
+	// 数据库初始化
+	dbType := os.Getenv("DB_TYPE")
+	dbDSN := os.Getenv("DATABASE_URL")
+
+	// 向后兼容：如果没有设置 DB_TYPE 和 DATABASE_URL，使用 DB_PATH
+	if dbType == "" && dbDSN == "" {
+		dbType = "sqlite"
+		dbDSN = os.Getenv("DB_PATH")
+		if dbDSN == "" {
+			dbDSN = "data.db"
+		}
 	}
 
-	if err := database.Init(dbPath); err != nil {
+	if err := database.Init(dbType, dbDSN); err != nil {
 		log.Fatal("Failed to init database:", err)
 	}
 
