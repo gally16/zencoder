@@ -321,15 +321,92 @@ func generateSessionID() (string, error) {
 func cleanupExpiredSessions() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		pkceStore.Lock()
 		now := time.Now()
 		for id, session := range pkceStore.sessions {
-			if now.Sub(session.CreatedAt) > 10*time.Minute {
+			// 延长到30分钟，给用户足够时间手动粘贴
+			if now.Sub(session.CreatedAt) > 30*time.Minute {
 				delete(pkceStore.sessions, id)
 			}
 		}
 		pkceStore.Unlock()
 	}
+}
+
+// ExchangeRequest 手动交换token的请求结构
+type ExchangeRequest struct {
+	URL string `json:"url" binding:"required"`
+}
+
+// ManualExchange 处理手动粘贴URL交换token
+func (h *OAuthHandler) ManualExchange(c *gin.Context) {
+	var req ExchangeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请提供完整的URL"})
+		return
+	}
+
+	// 解析URL
+	parsedURL, err := url.Parse(req.URL)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "URL格式无效"})
+		return
+	}
+
+	// 从URL中提取code
+	code := parsedURL.Query().Get("code")
+	if code == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "URL中未找到授权码(code)"})
+		return
+	}
+
+	// 从state中提取sessionId
+	stateStr := parsedURL.Query().Get("state")
+	if stateStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "URL中未找到state参数"})
+		return
+	}
+
+	var state map[string]string
+	if err := json.Unmarshal([]byte(stateStr), &state); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "state参数格式无效"})
+		return
+	}
+
+	sessionID := state["sessionId"]
+	if sessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "state中未找到sessionId"})
+		return
+	}
+
+	// 获取会话
+	pkceStore.RLock()
+	session, exists := pkceStore.sessions[sessionID]
+	pkceStore.RUnlock()
+
+	if !exists {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "会话已过期，请重新点击「一键获取」后再粘贴URL"})
+		return
+	}
+
+	// 交换token
+	tokenResp, err := h.exchangeCodeForToken(code, session.CodeVerifier)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("获取Token失败: %v", err)})
+		return
+	}
+
+	// 清理会话
+	pkceStore.Lock()
+	delete(pkceStore.sessions, sessionID)
+	pkceStore.Unlock()
+
+	// 返回token
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"access_token":  tokenResp.AccessToken,
+		"refresh_token": tokenResp.RefreshToken,
+	})
 }

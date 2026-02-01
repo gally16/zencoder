@@ -78,6 +78,7 @@ func setupRoutes(r *gin.Engine) {
 	oauthHandler := handler.NewOAuthHandler()
 	r.GET("/api/oauth/start-rt", oauthHandler.StartOAuthForRT)
 	r.GET("/api/oauth/callback-rt", oauthHandler.CallbackOAuthForRT)
+	r.POST("/api/oauth/exchange", oauthHandler.ManualExchange)
 
 	// External API - 用于注册机提交OAuth token（公开访问）
 	externalHandler := handler.NewExternalHandler()

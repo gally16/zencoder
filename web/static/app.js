@@ -1832,30 +1832,39 @@ async function refreshTokenData() {
 }
 
 // OAuth RT获取功能
+let currentOAuthWindow = null;
+
 function startOAuthForRT() {
     // 打开新窗口进行OAuth认证
     const width = 600;
     const height = 700;
     const left = (window.screen.width - width) / 2;
     const top = (window.screen.height - height) / 2;
-    
-    const authWindow = window.open(
+
+    currentOAuthWindow = window.open(
         '/api/oauth/start-rt',
         'ZenCoderOAuth',
         `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
     );
-    
+
+    // 显示手动粘贴提示
+    showManualPasteHint();
+
     // 监听OAuth完成消息
     window.addEventListener('message', function handleOAuthMessage(event) {
         // 验证消息来源
         if (event.origin !== window.location.origin) return;
-        
+
         if (event.data.type === 'oauth-rt-complete') {
             // 关闭认证窗口
-            if (authWindow && !authWindow.closed) {
-                authWindow.close();
+            if (currentOAuthWindow && !currentOAuthWindow.closed) {
+                currentOAuthWindow.close();
             }
-            
+            currentOAuthWindow = null;
+
+            // 隐藏手动粘贴提示
+            hideManualPasteHint();
+
             // 移除事件监听器
             window.removeEventListener('message', handleOAuthMessage);
             
@@ -1888,6 +1897,93 @@ function startOAuthForRT() {
             }
         }
     });
+}
+
+// 显示手动粘贴URL提示
+function showManualPasteHint() {
+    // 移除已有的提示
+    hideManualPasteHint();
+
+    const hint = document.createElement('div');
+    hint.id = 'manualPasteHint';
+    hint.className = 'fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white rounded-lg shadow-2xl p-4 z-50 max-w-lg w-full mx-4';
+    hint.innerHTML = `
+        <div class="mb-2 text-sm font-semibold text-yellow-300">登录完成后，请复制浏览器地址栏的完整URL粘贴到下方：</div>
+        <div class="flex gap-2">
+            <input type="text" id="manualOAuthUrl" placeholder="粘贴 https://auth.zencoder.ai/extension/auth-success?code=... 的完整URL"
+                class="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm placeholder-gray-400 focus:outline-none focus:border-blue-500" />
+            <button onclick="submitManualOAuthUrl()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium whitespace-nowrap">
+                提交
+            </button>
+            <button onclick="hideManualPasteHint()" class="px-3 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded text-sm">
+                取消
+            </button>
+        </div>
+        <div class="mt-1 text-xs text-gray-400">提示：登录 Zencoder 后，页面会显示 "Welcome"，此时复制地址栏URL即可</div>
+    `;
+    document.body.appendChild(hint);
+}
+
+function hideManualPasteHint() {
+    const hint = document.getElementById('manualPasteHint');
+    if (hint) hint.remove();
+}
+
+async function submitManualOAuthUrl() {
+    const urlInput = document.getElementById('manualOAuthUrl');
+    const pastedUrl = urlInput ? urlInput.value.trim() : '';
+
+    if (!pastedUrl) {
+        showToast('请粘贴完整的URL', 'error');
+        return;
+    }
+
+    if (!pastedUrl.includes('code=')) {
+        showToast('URL中未找到授权码，请确认粘贴了正确的URL', 'error');
+        return;
+    }
+
+    try {
+        const resp = await fetch('/api/oauth/exchange', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: pastedUrl })
+        });
+
+        const data = await resp.json();
+
+        if (resp.ok && data.success) {
+            // 关闭OAuth窗口
+            if (currentOAuthWindow && !currentOAuthWindow.closed) {
+                currentOAuthWindow.close();
+            }
+            currentOAuthWindow = null;
+            hideManualPasteHint();
+
+            // 填充token
+            const currentMode = currentAddMode;
+            if (currentMode === 'credential') {
+                if (data.access_token) {
+                    document.getElementById('credential_access_token').value = data.access_token;
+                }
+                if (data.refresh_token) {
+                    document.getElementById('credential_refresh_token').value = data.refresh_token;
+                }
+            } else {
+                if (data.access_token) {
+                    document.getElementById('generate_access_token').value = data.access_token;
+                }
+                if (data.refresh_token) {
+                    document.getElementById('generate_refresh_token').value = data.refresh_token;
+                }
+            }
+            showToast('Token 获取成功！已自动填充', 'success');
+        } else {
+            showToast(data.error || '交换Token失败', 'error');
+        }
+    } catch (e) {
+        showToast('请求失败: ' + e.message, 'error');
+    }
 }
 
 // Toast提示功能
