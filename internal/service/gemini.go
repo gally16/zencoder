@@ -42,6 +42,7 @@ func (s *GeminiService) GenerateContent(ctx context.Context, modelName string, b
 
 		resp, err := s.doRequest(ctx, account, modelName, body, false)
 		if err != nil {
+			ReleaseAccount(account) // 释放账号
 			MarkAccountError(account)
 			lastErr = err
 			DebugLogRetry(ctx, "Gemini", i+1, account.ID, err)
@@ -50,7 +51,7 @@ func (s *GeminiService) GenerateContent(ctx context.Context, modelName string, b
 
 		DebugLogResponseReceived(ctx, "Gemini", resp.StatusCode)
 		DebugLogResponseHeaders(ctx, "Gemini", resp.Header)
-		
+
 		// 总是输出重要的响应头信息
 		if resp.Header.Get("Zen-Pricing-Period-Limit") != "" ||
 		   resp.Header.Get("Zen-Pricing-Period-Cost") != "" ||
@@ -69,6 +70,7 @@ func (s *GeminiService) GenerateContent(ctx context.Context, modelName string, b
 
 			// 400和500错误直接返回，不进行账号错误计数
 			if resp.StatusCode == 400 || resp.StatusCode == 500 {
+				ReleaseAccount(account) // 释放账号
 				DebugLogRequestEnd(ctx, "Gemini", false, fmt.Errorf("API error: %d", resp.StatusCode))
 				return nil, fmt.Errorf("API error: %d - %s", resp.StatusCode, string(errBody))
 			}
@@ -81,6 +83,7 @@ func (s *GeminiService) GenerateContent(ctx context.Context, modelName string, b
 				proxyResp, proxyErr := s.retryWithProxy(ctx, account, modelName, body, false)
 				if proxyErr == nil && proxyResp != nil {
 					// 代理重试成功
+					ReleaseAccount(account) // 释放账号
 					return proxyResp, nil
 				}
 
@@ -89,13 +92,15 @@ func (s *GeminiService) GenerateContent(ctx context.Context, modelName string, b
 			} else {
 				MarkAccountError(account)
 			}
-			
+
+			ReleaseAccount(account) // 释放账号
 			lastErr = fmt.Errorf("API error: %d", resp.StatusCode)
 			DebugLogRetry(ctx, "Gemini", i+1, account.ID, lastErr)
 			continue
 		}
 
 		ResetAccountError(account)
+		ReleaseAccount(account) // 释放账号
 		zenModel, exists := model.GetZenModel(modelName)
 		if !exists {
 			// 模型不存在，使用默认倍率
@@ -135,6 +140,7 @@ func (s *GeminiService) StreamGenerateContent(ctx context.Context, modelName str
 
 		resp, err := s.doRequest(ctx, account, modelName, body, true)
 		if err != nil {
+			ReleaseAccount(account) // 释放账号
 			MarkAccountError(account)
 			lastErr = err
 			DebugLogRetry(ctx, "Gemini", i+1, account.ID, err)
@@ -143,7 +149,7 @@ func (s *GeminiService) StreamGenerateContent(ctx context.Context, modelName str
 
 		DebugLogResponseReceived(ctx, "Gemini", resp.StatusCode)
 		DebugLogResponseHeaders(ctx, "Gemini", resp.Header)
-		
+
 		// 总是输出重要的响应头信息
 		if resp.Header.Get("Zen-Pricing-Period-Limit") != "" ||
 		   resp.Header.Get("Zen-Pricing-Period-Cost") != "" ||
@@ -162,6 +168,7 @@ func (s *GeminiService) StreamGenerateContent(ctx context.Context, modelName str
 
 			// 400和500错误直接返回，不进行账号错误计数
 			if resp.StatusCode == 400 || resp.StatusCode == 500 {
+				ReleaseAccount(account) // 释放账号
 				DebugLogRequestEnd(ctx, "Gemini", false, fmt.Errorf("API error: %d", resp.StatusCode))
 				return nil, fmt.Errorf("API error: %d - %s", resp.StatusCode, string(errBody))
 			}
@@ -174,6 +181,7 @@ func (s *GeminiService) StreamGenerateContent(ctx context.Context, modelName str
 				proxyResp, proxyErr := s.retryWithProxy(ctx, account, modelName, body, true)
 				if proxyErr == nil && proxyResp != nil {
 					// 代理重试成功
+					ReleaseAccount(account) // 释放账号
 					return proxyResp, nil
 				}
 
@@ -182,13 +190,15 @@ func (s *GeminiService) StreamGenerateContent(ctx context.Context, modelName str
 			} else {
 				MarkAccountError(account)
 			}
-			
+
+			ReleaseAccount(account) // 释放账号
 			lastErr = fmt.Errorf("API error: %d", resp.StatusCode)
 			DebugLogRetry(ctx, "Gemini", i+1, account.ID, lastErr)
 			continue
 		}
 
 		ResetAccountError(account)
+		ReleaseAccount(account) // 释放账号
 		zenModel, exists := model.GetZenModel(modelName)
 		if !exists {
 			// 模型不存在，使用默认倍率

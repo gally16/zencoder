@@ -51,6 +51,7 @@ func (s *GrokService) ChatCompletions(ctx context.Context, body []byte) (*http.R
 
 		resp, err := s.doRequest(ctx, account, req.Model, body)
 		if err != nil {
+			ReleaseAccount(account) // 释放账号
 			MarkAccountError(account)
 			lastErr = err
 			DebugLogRetry(ctx, "Grok", i+1, account.ID, err)
@@ -59,7 +60,7 @@ func (s *GrokService) ChatCompletions(ctx context.Context, body []byte) (*http.R
 
 		DebugLogResponseReceived(ctx, "Grok", resp.StatusCode)
 		DebugLogResponseHeaders(ctx, "Grok", resp.Header)
-		
+
 		// 总是输出重要的响应头信息
 		if resp.Header.Get("Zen-Pricing-Period-Limit") != "" ||
 		   resp.Header.Get("Zen-Pricing-Period-Cost") != "" ||
@@ -74,7 +75,7 @@ func (s *GrokService) ChatCompletions(ctx context.Context, body []byte) (*http.R
 			// 读取错误响应内容
 			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			
+
 			// 429 错误特殊处理 - 直接返回，不重试
 			if resp.StatusCode == 429 {
 				log.Printf("[Grok] 429限流错误，尝试使用代理重试")
@@ -83,6 +84,7 @@ func (s *GrokService) ChatCompletions(ctx context.Context, body []byte) (*http.R
 				proxyResp, proxyErr := s.retryWithProxy(ctx, account, req.Model, body)
 				if proxyErr == nil && proxyResp != nil {
 					// 代理重试成功
+					ReleaseAccount(account) // 释放账号
 					return proxyResp, nil
 				}
 
@@ -91,27 +93,31 @@ func (s *GrokService) ChatCompletions(ctx context.Context, body []byte) (*http.R
 				DebugLogErrorResponse(ctx, "Grok", resp.StatusCode, string(errBody))
 				// 将账号放入短期冷却（5秒）
 				MarkAccountRateLimitedShort(account)
+				ReleaseAccount(account) // 释放账号
 				// 标记错误并结束请求
 				DebugLogRequestEnd(ctx, "Grok", false, ErrNoAvailableAccount)
 				// 返回通用错误
 				return nil, ErrNoAvailableAccount
 			}
-			
+
 			DebugLogErrorResponse(ctx, "Grok", resp.StatusCode, string(errBody))
 
 			// 400和500错误直接返回，不进行账号错误计数
 			if resp.StatusCode == 400 || resp.StatusCode == 500 {
+				ReleaseAccount(account) // 释放账号
 				DebugLogRequestEnd(ctx, "Grok", false, fmt.Errorf("API error: %d", resp.StatusCode))
 				return nil, fmt.Errorf("API error: %d - %s", resp.StatusCode, string(errBody))
 			}
 
 			MarkAccountError(account)
+			ReleaseAccount(account) // 释放账号
 			lastErr = fmt.Errorf("API error: %d", resp.StatusCode)
 			DebugLogRetry(ctx, "Grok", i+1, account.ID, lastErr)
 			continue
 		}
 
 		ResetAccountError(account)
+		ReleaseAccount(account) // 释放账号
 		zenModel, exists := model.GetZenModel(req.Model)
 		if !exists {
 			// 模型不存在，使用默认倍率

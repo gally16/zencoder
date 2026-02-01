@@ -61,6 +61,7 @@ func (s *OpenAIService) ChatCompletions(ctx context.Context, body []byte) (*http
 
 		resp, err := s.doRequest(ctx, account, req.Model, "/v1/responses", convertedBody)
 		if err != nil {
+			ReleaseAccount(account) // 释放账号
 			MarkAccountError(account)
 			lastErr = err
 			DebugLogRetry(ctx, "OpenAI", i+1, account.ID, err)
@@ -69,7 +70,7 @@ func (s *OpenAIService) ChatCompletions(ctx context.Context, body []byte) (*http
 
 		DebugLogResponseReceived(ctx, "OpenAI", resp.StatusCode)
 		DebugLogResponseHeaders(ctx, "OpenAI", resp.Header)
-		
+
 		// 总是输出重要的响应头信息
 		if resp.Header.Get("Zen-Pricing-Period-Limit") != "" ||
 		   resp.Header.Get("Zen-Pricing-Period-Cost") != "" ||
@@ -88,6 +89,7 @@ func (s *OpenAIService) ChatCompletions(ctx context.Context, body []byte) (*http
 
 			// 400和500错误直接返回，不进行账号错误计数
 			if resp.StatusCode == 400 || resp.StatusCode == 500 {
+				ReleaseAccount(account) // 释放账号
 				DebugLogRequestEnd(ctx, "OpenAI", false, fmt.Errorf("API error: %d", resp.StatusCode))
 				return nil, fmt.Errorf("API error: %d - %s", resp.StatusCode, string(errBody))
 			}
@@ -100,6 +102,7 @@ func (s *OpenAIService) ChatCompletions(ctx context.Context, body []byte) (*http
 				proxyResp, proxyErr := s.retryWithProxy(ctx, account, req.Model, "/v1/responses", convertedBody)
 				if proxyErr == nil && proxyResp != nil {
 					// 代理重试成功
+					ReleaseAccount(account) // 释放账号
 					return proxyResp, nil
 				}
 
@@ -108,13 +111,15 @@ func (s *OpenAIService) ChatCompletions(ctx context.Context, body []byte) (*http
 			} else {
 				MarkAccountError(account)
 			}
-			
+
+			ReleaseAccount(account) // 释放账号
 			lastErr = fmt.Errorf("API error: %d", resp.StatusCode)
 			DebugLogRetry(ctx, "OpenAI", i+1, account.ID, lastErr)
 			continue
 		}
 
 		ResetAccountError(account)
+		ReleaseAccount(account) // 释放账号
 		zenModel, exists := model.GetZenModel(req.Model)
 		if !exists {
 			// 模型不存在，使用默认倍率
@@ -161,6 +166,7 @@ func (s *OpenAIService) Responses(ctx context.Context, body []byte) (*http.Respo
 
 		resp, err := s.doRequest(ctx, account, req.Model, "/v1/responses", body)
 		if err != nil {
+			ReleaseAccount(account) // 释放账号
 			MarkAccountError(account)
 			lastErr = err
 			DebugLogRetry(ctx, "OpenAI", i+1, account.ID, err)
@@ -169,7 +175,7 @@ func (s *OpenAIService) Responses(ctx context.Context, body []byte) (*http.Respo
 
 		DebugLogResponseReceived(ctx, "OpenAI", resp.StatusCode)
 		DebugLogResponseHeaders(ctx, "OpenAI", resp.Header)
-		
+
 		// 总是输出重要的响应头信息
 		if resp.Header.Get("Zen-Pricing-Period-Limit") != "" ||
 		   resp.Header.Get("Zen-Pricing-Period-Cost") != "" ||
@@ -184,7 +190,7 @@ func (s *OpenAIService) Responses(ctx context.Context, body []byte) (*http.Respo
 			// 读取错误响应内容
 			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			
+
 			// 429 错误特殊处理 - 直接返回，不重试
 			if resp.StatusCode == 429 {
 				log.Printf("[OpenAI] 429限流错误，尝试使用代理重试")
@@ -193,31 +199,36 @@ func (s *OpenAIService) Responses(ctx context.Context, body []byte) (*http.Respo
 				proxyResp, proxyErr := s.retryWithProxy(ctx, account, req.Model, "/v1/responses", body)
 				if proxyErr == nil && proxyResp != nil {
 					// 代理重试成功
+					ReleaseAccount(account) // 释放账号
 					return proxyResp, nil
 				}
 
 				log.Printf("[OpenAI] 代理重试失败: %v", proxyErr)
 				// 将账号放入短期冷却（5秒）
 				MarkAccountRateLimitedShort(account)
+				ReleaseAccount(account) // 释放账号
 				// 不输出错误日志，直接返回
 				return nil, ErrNoAvailableAccount
 			}
-			
+
 			DebugLogErrorResponse(ctx, "OpenAI", resp.StatusCode, string(errBody))
 
 			// 400和500错误直接返回，不进行账号错误计数
 			if resp.StatusCode == 400 || resp.StatusCode == 500 {
+				ReleaseAccount(account) // 释放账号
 				DebugLogRequestEnd(ctx, "OpenAI", false, fmt.Errorf("API error: %d", resp.StatusCode))
 				return nil, fmt.Errorf("API error: %d - %s", resp.StatusCode, string(errBody))
 			}
 
 			MarkAccountError(account)
+			ReleaseAccount(account) // 释放账号
 			lastErr = fmt.Errorf("API error: %d", resp.StatusCode)
 			DebugLogRetry(ctx, "OpenAI", i+1, account.ID, lastErr)
 			continue
 		}
 
 		ResetAccountError(account)
+		ReleaseAccount(account) // 释放账号
 		zenModel, exists := model.GetZenModel(req.Model)
 		if !exists {
 			// 模型不存在，使用默认倍率
@@ -246,6 +257,7 @@ func (s *OpenAIService) convertChatToResponsesBody(body []byte) ([]byte, error) 
 	delete(raw, "stream_options")  // 不支持 stream_options.include_usage 等
 	delete(raw, "function_call")   // 旧版函数调用参数
 	delete(raw, "functions")       // 旧版函数定义参数
+	delete(raw, "verbosity")       // verbosity 应该在 text.verbosity 中，不在根级别
 	
 	// 转换 token 限制参数
 	// max_completion_tokens (新) / max_tokens (旧) -> max_output_tokens (Responses API)
