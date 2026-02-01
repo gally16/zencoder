@@ -76,9 +76,13 @@ func (h *OAuthHandler) StartOAuthForRT(c *gin.Context) {
 	pkceStore.Unlock()
 	
 	// 获取回调URL
-	scheme := "http"
-	if c.Request.TLS != nil {
-		scheme = "https"
+	// 优先检查 X-Forwarded-Proto (反向代理如 HF Spaces/Cloudflare)
+	scheme := c.GetHeader("X-Forwarded-Proto")
+	if scheme == "" {
+		scheme = "http"
+		if c.Request.TLS != nil {
+			scheme = "https"
+		}
 	}
 	host := c.Request.Host
 	
