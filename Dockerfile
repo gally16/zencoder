@@ -6,14 +6,11 @@ WORKDIR /app
 # Install build dependencies
 RUN apk add --no-cache gcc musl-dev
 
-# Copy go mod file first
-COPY go.mod ./
+# Copy all source code first
+COPY . .
 
 # Generate go.sum and download dependencies
 RUN go mod tidy && go mod download
-
-# Copy source code
-COPY . .
 
 # Build the application
 RUN CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-linkmode external -extldflags "-static"' -o zencoder2api .
