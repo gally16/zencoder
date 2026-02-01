@@ -579,15 +579,10 @@ func (s *OpenAIService) handleNonStreamResponse(w http.ResponseWriter, resp *htt
 }
 
 func (s *OpenAIService) streamConvertedResponse(w http.ResponseWriter, resp *http.Response, modelID string) error {
-	// 复制响应头
-	for k, v := range resp.Header {
-		// 过滤掉 Content-Encoding 和 Content-Length
-		if k != "Content-Encoding" && k != "Content-Length" {
-			for _, vv := range v {
-				w.Header().Add(k, vv)
-			}
-		}
-	}
+	// 设置SSE响应头
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(resp.StatusCode)
 
 	flusher, ok := w.(http.Flusher)
@@ -600,74 +595,72 @@ func (s *OpenAIService) streamConvertedResponse(w http.ResponseWriter, resp *htt
 	reader := bufio.NewReader(resp.Body)
 	timestamp := time.Now().Unix()
 	id := fmt.Sprintf("chatcmpl-%d", timestamp)
+	sentFirstChunk := false
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				return nil
-			}
-			return err
-		}
-
-		// 处理空行
-		trimmedLine := strings.TrimSpace(line)
-		if trimmedLine == "" {
-			fmt.Fprintf(w, "\n")
-			flusher.Flush()
-			continue
-		}
-
-		// 解析 data: 前缀
-		if !strings.HasPrefix(trimmedLine, "data: ") {
-			// 尝试解析为 JSON 对象 (处理被强制转为非流式的响应)
-			var rawObj map[string]interface{}
-			if json.Unmarshal([]byte(trimmedLine), &rawObj) == nil {
-				// 尝试从 JSON 中提取内容
-				var content string
-				if val, ok := rawObj["text"].(string); ok {
-					content = val
-				} else if val, ok := rawObj["content"].(string); ok {
-					content = val
-				} else if val, ok := rawObj["response"].(string); ok {
-					content = val
-				}
-
-				if content != "" {
-					// 构造并发送 SSE chunk
-					chunk := model.ChatCompletionChunk{
+				// 发送结束标记
+				if sentFirstChunk {
+					// 发送 finish_reason
+					finishChunk := model.ChatCompletionChunk{
 						ID:      id,
 						Object:  "chat.completion.chunk",
 						Created: timestamp,
 						Model:   modelID,
 						Choices: []model.StreamChoice{
 							{
-								Index: 0,
-								Delta: model.ChatMessage{
-									Content: content,
-								},
-								FinishReason: nil,
+								Index:        0,
+								Delta:        model.ChatMessage{},
+								FinishReason: stringPtr("stop"),
 							},
 						},
 					}
-					newBytes, _ := json.Marshal(chunk)
-					fmt.Fprintf(w, "data: %s\n\n", string(newBytes))
-
-					// 发送结束标记
-					fmt.Fprintf(w, "data: [DONE]\n\n")
-					flusher.Flush()
-					return nil
+					finishBytes, _ := json.Marshal(finishChunk)
+					fmt.Fprintf(w, "data: %s\n\n", string(finishBytes))
 				}
+				fmt.Fprintf(w, "data: [DONE]\n\n")
+				flusher.Flush()
+				return nil
 			}
+			return err
+		}
 
-			// 非 data 行直接通过
-			fmt.Fprint(w, line)
-			flusher.Flush()
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine == "" {
 			continue
 		}
 
-		data := strings.TrimPrefix(trimmedLine, "data: ")
+		// 跳过 event: 行
+		if strings.HasPrefix(trimmedLine, "event:") {
+			continue
+		}
+
+		// 处理 data: 行
+		if !strings.HasPrefix(trimmedLine, "data:") {
+			continue
+		}
+
+		data := strings.TrimSpace(strings.TrimPrefix(trimmedLine, "data:"))
 		if data == "[DONE]" {
+			if sentFirstChunk {
+				finishChunk := model.ChatCompletionChunk{
+					ID:      id,
+					Object:  "chat.completion.chunk",
+					Created: timestamp,
+					Model:   modelID,
+					Choices: []model.StreamChoice{
+						{
+							Index:        0,
+							Delta:        model.ChatMessage{},
+							FinishReason: stringPtr("stop"),
+						},
+					},
+				}
+				finishBytes, _ := json.Marshal(finishChunk)
+				fmt.Fprintf(w, "data: %s\n\n", string(finishBytes))
+			}
 			fmt.Fprintf(w, "data: [DONE]\n\n")
 			flusher.Flush()
 			return nil
@@ -676,32 +669,57 @@ func (s *OpenAIService) streamConvertedResponse(w http.ResponseWriter, resp *htt
 		// 尝试解析 JSON
 		var raw map[string]interface{}
 		if err := json.Unmarshal([]byte(data), &raw); err != nil {
-			// 解析失败，直接透传
-			fmt.Fprint(w, line)
-			flusher.Flush()
 			continue
 		}
 
-		// 检查是否已经是 OpenAI 格式
+		// 检查是否已经是 OpenAI Chat Completion 格式
 		if _, hasChoices := raw["choices"]; hasChoices {
-			fmt.Fprint(w, line)
+			fmt.Fprintf(w, "data: %s\n\n", data)
 			flusher.Flush()
+			sentFirstChunk = true
 			continue
 		}
 
-		// 尝试转换非标准格式
-		// 假设可能有 text, content, response 等字段
+		// 处理 Responses API 格式
+		eventType, _ := raw["type"].(string)
 		var content string
-		if val, ok := raw["text"].(string); ok {
-			content = val
-		} else if val, ok := raw["content"].(string); ok {
-			content = val
-		} else if val, ok := raw["response"].(string); ok {
-			content = val
+
+		switch eventType {
+		case "response.output_text.delta":
+			// 文本增量事件: {"type":"response.output_text.delta","delta":"text here"}
+			if delta, ok := raw["delta"].(string); ok {
+				content = delta
+			}
+		case "response.content_part.delta":
+			// 内容部分增量: {"type":"response.content_part.delta","delta":{"type":"text","text":"..."}}
+			if delta, ok := raw["delta"].(map[string]interface{}); ok {
+				if text, ok := delta["text"].(string); ok {
+					content = text
+				}
+			}
+		case "response.completed", "response.done":
+			// 完成事件 - 从response中提取完整内容（如果之前没有发送过）
+			if !sentFirstChunk {
+				content = s.extractContentFromResponse(raw)
+			}
+		default:
+			// 尝试从其他常见字段提取
+			if val, ok := raw["text"].(string); ok {
+				content = val
+			} else if val, ok := raw["delta"].(string); ok {
+				content = val
+			} else if val, ok := raw["content"].(string); ok {
+				content = val
+			}
 		}
 
 		if content != "" {
-			// 构造标准 OpenAI Chunk
+			// 第一个chunk发送role
+			delta := model.ChatMessage{Content: content}
+			if !sentFirstChunk {
+				delta.Role = "assistant"
+			}
+
 			chunk := model.ChatCompletionChunk{
 				ID:      id,
 				Object:  "chat.completion.chunk",
@@ -709,10 +727,8 @@ func (s *OpenAIService) streamConvertedResponse(w http.ResponseWriter, resp *htt
 				Model:   modelID,
 				Choices: []model.StreamChoice{
 					{
-						Index: 0,
-						Delta: model.ChatMessage{
-							Content: content,
-						},
+						Index:        0,
+						Delta:        delta,
 						FinishReason: nil,
 					},
 				},
@@ -721,12 +737,58 @@ func (s *OpenAIService) streamConvertedResponse(w http.ResponseWriter, resp *htt
 			newBytes, _ := json.Marshal(chunk)
 			fmt.Fprintf(w, "data: %s\n\n", string(newBytes))
 			flusher.Flush()
-		} else {
-			// 无法识别内容，直接透传
-			fmt.Fprint(w, line)
-			flusher.Flush()
+			sentFirstChunk = true
 		}
 	}
+}
+
+// extractContentFromResponse 从 response.completed 事件中提取文本内容
+func (s *OpenAIService) extractContentFromResponse(raw map[string]interface{}) string {
+	// 尝试从 response.output 中提取
+	response, ok := raw["response"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	output, ok := response["output"].([]interface{})
+	if !ok {
+		return ""
+	}
+
+	var content string
+	for _, item := range output {
+		itemMap, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		itemType, _ := itemMap["type"].(string)
+		if itemType == "message" {
+			// 从 message.content 中提取
+			contentArr, ok := itemMap["content"].([]interface{})
+			if !ok {
+				continue
+			}
+			for _, c := range contentArr {
+				cMap, ok := c.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				if cMap["type"] == "output_text" {
+					if text, ok := cMap["text"].(string); ok {
+						content += text
+					}
+				}
+			}
+		}
+	}
+
+	return content
+}
+
+// stringPtr 返回字符串指针
+func stringPtr(s string) *string {
+	return &s
 }
 
 // ResponsesProxy 代理responses请求
