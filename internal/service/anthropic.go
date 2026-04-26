@@ -184,7 +184,7 @@ func (s *AnthropicService) Messages(ctx context.Context, body []byte, isStream b
 	}
 
 	// 检查模型是否存在于模型字典中
-	_, exists := model.GetZenModel(req.Model)
+	exists := EnsureModelAvailable(req.Model)
 	if !exists {
 		DebugLog(ctx, "[Anthropic] 模型不存在: %s", req.Model)
 		return nil, ErrNoAvailableAccount

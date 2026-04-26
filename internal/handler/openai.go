@@ -58,6 +58,11 @@ func (h *OpenAIHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	// 根据模型的 ProviderID 分流
+	if !service.EnsureModelAvailable(req.Model) {
+		h.handleError(c, service.ErrNoAvailableAccount)
+		return
+	}
+
 	zenModel, exists := model.GetZenModel(req.Model)
 	if !exists {
 		// 模型不存在，返回错误
@@ -100,6 +105,16 @@ func (h *OpenAIHandler) Responses(c *gin.Context) {
 	if err := h.svc.ResponsesProxy(c.Request.Context(), c.Writer, body); err != nil {
 		h.handleError(c, err)
 	}
+}
+
+// Models 处理 GET /v1/models
+func (h *OpenAIHandler) Models(c *gin.Context) {
+	c.JSON(http.StatusOK, h.svc.ListModels())
+}
+
+// ModelSyncStatus 处理 GET /v1/models/status
+func (h *OpenAIHandler) ModelSyncStatus(c *gin.Context) {
+	c.JSON(http.StatusOK, h.svc.GetModelSyncStatus())
 }
 
 // handleError 统一处理错误，特别是没有可用账号的错误

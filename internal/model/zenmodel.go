@@ -1,5 +1,11 @@
 package model
 
+import (
+	"sort"
+	"sync"
+	"time"
+)
+
 // ThinkingConfig thinking模式配置
 type ThinkingConfig struct {
 	Type         string `json:"type"`
@@ -62,8 +68,8 @@ var (
 	}
 )
 
-// 模型映射表
-var ZenModels = map[string]ZenModel{
+// 默认模型映射表，用于启动引导和上游同步失败时的回退。
+var defaultZenModels = map[string]ZenModel{
 	// Anthropic Models - Thinking模式（通过ID访问）
 	"claude-haiku-4-5-20251001-thinking": {
 		ID: "haiku-4-5-think", DisplayName: "Haiku 4.5 Parallel Thinking",
@@ -200,13 +206,73 @@ var ZenModels = map[string]ZenModel{
 	},
 }
 
+var (
+	zenModelsMu       sync.RWMutex
+	zenModels         = cloneZenModels(defaultZenModels)
+	zenModelsSyncedAt time.Time
+)
+
+func cloneZenModels(src map[string]ZenModel) map[string]ZenModel {
+	dst := make(map[string]ZenModel, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+// DefaultZenModels 返回默认模型集合副本。
+func DefaultZenModels() map[string]ZenModel {
+	return cloneZenModels(defaultZenModels)
+}
+
+// ReplaceZenModels 原子替换当前模型集合。
+func ReplaceZenModels(models map[string]ZenModel) {
+	zenModelsMu.Lock()
+	defer zenModelsMu.Unlock()
+
+	zenModels = cloneZenModels(models)
+	zenModelsSyncedAt = time.Now()
+}
+
+// ResetZenModelsToDefault 在同步失败时回退到默认模型集合。
+func ResetZenModelsToDefault() {
+	ReplaceZenModels(defaultZenModels)
+}
+
+// ZenModelsSyncedAt 返回最近一次模型表更新时间。
+func ZenModelsSyncedAt() time.Time {
+	zenModelsMu.RLock()
+	defer zenModelsMu.RUnlock()
+	return zenModelsSyncedAt
+}
+
 // GetZenModel 获取模型配置，如果不存在则返回空模型和false
 func GetZenModel(modelID string) (ZenModel, bool) {
-	if m, ok := ZenModels[modelID]; ok {
+	zenModelsMu.RLock()
+	defer zenModelsMu.RUnlock()
+
+	if m, ok := zenModels[modelID]; ok {
 		return m, true
 	}
 	// 模型不存在，返回空模型和false
 	return ZenModel{}, false
+}
+
+// ListZenModels 返回稳定排序后的模型列表。
+func ListZenModels() []ZenModel {
+	zenModelsMu.RLock()
+	defer zenModelsMu.RUnlock()
+
+	models := make([]ZenModel, 0, len(zenModels))
+	for _, m := range zenModels {
+		models = append(models, m)
+	}
+
+	sort.Slice(models, func(i, j int) bool {
+		return models[i].Model < models[j].Model
+	})
+
+	return models
 }
 
 // CanUseModel 检查订阅类型是否可以使用指定模型

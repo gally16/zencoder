@@ -49,6 +49,9 @@ func main() {
 	// 初始化账号池
 	service.InitAccountPool()
 
+	// 初始化上游模型同步
+	service.InitModelSyncService()
+
 	// 初始化自动生成服务
 	service.InitAutoGenerationService()
 
@@ -75,6 +78,8 @@ func setupRoutes(r *gin.Engine) {
 
 	// OpenAI API - /v1/chat/completions, /v1/responses
 	openaiHandler := handler.NewOpenAIHandler()
+	r.GET("/v1/models", middleware.LoggerMiddleware(), middleware.AuthMiddleware(), openaiHandler.Models)
+	r.GET("/v1/models/status", middleware.LoggerMiddleware(), middleware.AuthMiddleware(), openaiHandler.ModelSyncStatus)
 	r.POST("/v1/chat/completions", middleware.LoggerMiddleware(), middleware.AuthMiddleware(), openaiHandler.ChatCompletions)
 	r.POST("/v1/responses", middleware.LoggerMiddleware(), middleware.AuthMiddleware(), openaiHandler.Responses)
 

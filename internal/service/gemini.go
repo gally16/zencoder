@@ -23,7 +23,7 @@ func NewGeminiService() *GeminiService {
 // GenerateContent 处理generateContent请求
 func (s *GeminiService) GenerateContent(ctx context.Context, modelName string, body []byte) (*http.Response, error) {
 	// 检查模型是否存在于模型字典中
-	_, exists := model.GetZenModel(modelName)
+	exists := EnsureModelAvailable(modelName)
 	if !exists {
 		DebugLog(ctx, "[Gemini] 模型不存在: %s", modelName)
 		return nil, ErrNoAvailableAccount
@@ -121,7 +121,7 @@ func (s *GeminiService) GenerateContent(ctx context.Context, modelName string, b
 // StreamGenerateContent 处理streamGenerateContent请求
 func (s *GeminiService) StreamGenerateContent(ctx context.Context, modelName string, body []byte) (*http.Response, error) {
 	// 检查模型是否存在于模型字典中
-	_, exists := model.GetZenModel(modelName)
+	exists := EnsureModelAvailable(modelName)
 	if !exists {
 		DebugLog(ctx, "[Gemini] 模型不存在: %s", modelName)
 		return nil, ErrNoAvailableAccount

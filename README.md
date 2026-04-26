@@ -16,9 +16,15 @@ app_port: 7860
 ## 功能特性
 
 - **多格式 API 兼容**
-  - OpenAI `/v1/chat/completions` 和 `/v1/responses`
+  - OpenAI `/v1/models`、`/v1/chat/completions` 和 `/v1/responses`
   - Anthropic `/v1/messages`
   - Gemini `/v1beta/models/*`
+
+- **动态模型同步**
+  - 启动时自动从 Zencoder 上游同步模型
+  - 定时刷新模型缓存
+  - 未命中的模型会触发一次按需同步
+  - 上游接口异常时自动回退到官方模型文档/现有缓存
 
 - **多账号池管理**
   - 自动轮询账号
@@ -175,6 +181,20 @@ volumes:
 ## API 使用
 
 ### OpenAI 格式
+
+```bash
+curl https://your-space.hf.space/v1/models \
+  -H "Authorization: Bearer your_token"
+```
+
+返回的模型列表可直接用于 OpenAI 兼容客户端的自动发现，无需再手工填写。
+
+```bash
+curl https://your-space.hf.space/v1/models/status \
+  -H "Authorization: Bearer your_token"
+```
+
+可查看当前模型同步来源、时间、数量和最近错误。
 
 ```bash
 curl -X POST https://your-space.hf.space/v1/chat/completions \

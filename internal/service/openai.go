@@ -24,6 +24,30 @@ func NewOpenAIService() *OpenAIService {
 	return &OpenAIService{}
 }
 
+// ListModels 返回 OpenAI 兼容的模型列表。
+func (s *OpenAIService) ListModels() model.ModelListResponse {
+	models := model.ListZenModels()
+	data := make([]model.ModelInfo, 0, len(models))
+
+	for _, zenModel := range models {
+		data = append(data, model.ModelInfo{
+			ID:      zenModel.Model,
+			Object:  "model",
+			Created: 0,
+			OwnedBy: zenModel.ProviderID,
+		})
+	}
+
+	return model.ModelListResponse{
+		Object: "list",
+		Data:   data,
+	}
+}
+
+func (s *OpenAIService) GetModelSyncStatus() model.ModelSyncStatus {
+	return GetModelSyncService().Status()
+}
+
 // ChatCompletions 处理/v1/chat/completions请求
 func (s *OpenAIService) ChatCompletions(ctx context.Context, body []byte) (*http.Response, error) {
 	var req struct {
@@ -34,7 +58,7 @@ func (s *OpenAIService) ChatCompletions(ctx context.Context, body []byte) (*http
 	}
 
 	// 检查模型是否存在于模型字典中
-	_, exists := model.GetZenModel(req.Model)
+	exists := EnsureModelAvailable(req.Model)
 	if !exists {
 		DebugLog(ctx, "[OpenAI] 模型不存在: %s", req.Model)
 		return nil, ErrNoAvailableAccount
@@ -147,7 +171,7 @@ func (s *OpenAIService) Responses(ctx context.Context, body []byte) (*http.Respo
 	}
 
 	// 检查模型是否存在于模型字典中
-	_, exists := model.GetZenModel(req.Model)
+	exists := EnsureModelAvailable(req.Model)
 	if !exists {
 		DebugLog(ctx, "[OpenAI] 模型不存在: %s", req.Model)
 		return nil, ErrNoAvailableAccount

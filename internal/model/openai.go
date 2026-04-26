@@ -51,3 +51,23 @@ type ChatCompletionChunk struct {
 	Model   string         `json:"model"`
 	Choices []StreamChoice `json:"choices"`
 }
+
+type ModelListResponse struct {
+	Object string      `json:"object"`
+	Data   []ModelInfo `json:"data"`
+}
+
+type ModelInfo struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Created int64  `json:"created"`
+	OwnedBy string `json:"owned_by"`
+}
+
+type ModelSyncStatus struct {
+	Source       string `json:"source"`
+	SyncedAt     int64  `json:"synced_at"`
+	ModelCount   int    `json:"model_count"`
+	LastError    string `json:"last_error,omitempty"`
+	UsingDefault bool   `json:"using_default"`
+}
